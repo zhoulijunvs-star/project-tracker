@@ -410,48 +410,102 @@ async def import_quote(
 
 
 def parse_excel_quote(content: bytes) -> List[dict]:
-    """解析 Excel 报价文件 — 智能识别表头并提取报价数据"""
+    """解析 Excel/BOQ 报价文件 — 支持多子表、工程量清单、层级结构"""
     import openpyxl
     wb = openpyxl.load_workbook(BytesIO(content), data_only=True)
     results = []
 
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
-        rows = list(ws.iter_rows(values_only=True))
+
+        # ── 0. BOQ表数据集中在前列，限制读取范围提升性能 ──
+        max_col = min(ws.max_column, 50)
+        rows = list(ws.iter_rows(min_col=1, max_col=max_col, values_only=True))
         if not rows:
             continue
 
-        # ── 1. 智能定位表头（前10行中找含关键词最多的行作为表头）──
+        # ── 1. 智能定位表头（前15行中找含关键词最多的行）──
         header_row_idx = 0
         best_score = 0
-        for i in range(min(10, len(rows))):
+        for i in range(min(15, len(rows))):
             candidate = [str(c).strip().lower() if c is not None else '' for c in rows[i]]
             col_map_test = map_columns(candidate)
             score = len(col_map_test)
             if score > best_score:
                 best_score = score
                 header_row_idx = i
-                header = candidate
                 col_map = col_map_test
 
-        if best_score == 0:
-            continue  # 无法识别任何列
+        if best_score < 2:
+            continue  # 需要至少识别到2个列
 
-        # ── 2. 提取数据行 ──
+        # ── 2. 从表头检测币种 ──
+        currency = 'CNY'
+        header_row = rows[header_row_idx]
+        for c in header_row:
+            if c:
+                s = str(c).upper()
+                if 'MOP' in s or '澳門' in s or '澳门' in s:
+                    currency = 'MOP'
+                    break
+                elif 'HKD' in s or '港幣' in s or '港币' in s or 'HK$' in s:
+                    currency = 'HKD'
+                    break
+
+        # ── 3. 从文件名提取供应商信息 ──
+        supplier_from_file = sheet_name.strip() if sheet_name else ''
+
+        # ── 4. 提取数据行 ──
+        current_category = ''
         for row in rows[header_row_idx + 1:]:
             # 跳过全空行
-            if not any(c is not None and str(c).strip() for c in row):
+            cells_with_content = [c for c in row if c is not None and str(c).strip()]
+            if not cells_with_content:
+                continue
+
+            # 提取第一个非空列作为编号/名称判断
+            first_cell = str(row[0]).strip() if row[0] is not None and str(row[0]).strip() else ''
+            second_cell = str(row[1]).strip() if len(row) > 1 and row[1] is not None and str(row[1]).strip() else ''
+
+            # 检测节标题（只有第2列有内容，看起来像分类标题）
+            is_section_header = False
+            if not first_cell and second_cell and not any(
+                str(row[i]).strip() if len(row) > i and row[i] else ''
+                for i in range(2, len(row))
+            ):
+                section_text = second_cell
+                if not any(c.isdigit() for c in section_text) and len(section_text) < 50:
+                    is_section_header = True
+                    current_category = section_text
+
+            if is_section_header:
+                continue
+
+            # 跳过纯说明行（只有第二列有大量文字，无编号无价格）
+            if not first_cell and len(cells_with_content) <= 2:
+                continue
+
+            # 跳过汇总行
+            all_text = ' '.join(str(c) for c in row if c).lower()
+            if any(kw in all_text for kw in ['合计', '總計', 'total', 'grand total', '小计']):
                 continue
 
             item = extract_from_row_enhanced(row, col_map)
 
-            # 跳过汇总行（含"合计"/"总计"等关键词）
-            all_text = ' '.join(str(c) for c in row if c).lower()
-            if any(kw in all_text for kw in ['合计', '总计', 'total', '小计', '备注']):
-                if not item.get('product_service_detail') and not item.get('price'):
-                    continue
+            # 应用检测到的币种和类别
+            if not item.get('currency') or item.get('currency') == 'CNY':
+                item['currency'] = currency
+            if current_category and not item.get('category'):
+                item['category'] = current_category
+            if supplier_from_file and not item.get('supplier_company'):
+                item['supplier_company'] = supplier_from_file
 
-            if item.get('product_service_detail') or item.get('price') is not None:
+            # 只保留有价格 或 有明显产品名称的数据行
+            if item.get('price') is not None or (
+                item.get('product_service_detail') and
+                len(item.get('product_service_detail', '')) > 3 and
+                not item.get('product_service_detail', '').startswith('K.')
+            ):
                 results.append(item)
 
     return results
@@ -566,27 +620,42 @@ def parse_pdf_quote(content: bytes) -> List[dict]:
 
 
 def map_columns(header: List[str]) -> dict:
-    """Map column names to standard field names"""
+    """Map column names to standard field names (Simplified & Traditional Chinese)"""
     mapping = {
-        'supplier_company': ['供应商', '公司', 'supplier', 'company', '厂商', '供货商', '卖方', '单位名称', '客户名称', '报价单位'],
-        'contact_name': ['联系人', 'contact', '姓名', 'name', '对方联系人', '业务员', '销售'],
-        'phone': ['电话', 'phone', 'tel', '手机', 'mobile', '联系电话', '联系方式', '传真'],
-        'email': ['邮箱', 'email', 'mail', 'e-mail', '电子邮箱', '邮件'],
+        'supplier_company': [
+            '供应商', '供應商', '公司', 'supplier', 'company', '厂商', '廠商',
+            '供货商', '供貨商', '卖方', '賣方', '单位名称', '單位名稱', '报价单位', '報價單位',
+        ],
+        'contact_name': [
+            '联系人', '聯繫人', 'contact', '姓名', 'name', '业务员', '業務員', '销售', '銷售',
+        ],
+        'phone': [
+            '电话', '電話', 'phone', 'tel', '手机', '手機', 'mobile', '联系方式', '聯繫方式', '传真', '傳真',
+        ],
+        'email': [
+            '邮箱', '郵箱', 'email', 'mail', 'e-mail', '电子邮箱', '電子郵箱', '邮件', '郵件',
+        ],
         'product_service_detail': [
-            '产品', '服务', '描述', 'product', 'service', 'detail', 'description',
-            '设备名称', '型号', '品名', '项目', '名称', '规格', '货物名称',
-            '商品名称', '产品名称', '产品型号', '规格型号', '规格参数',
-            '物料名称', '物料描述', '货品名称', '货物', '内容', '项目名称',
-            '说明', 'item', 'model', 'part', '物料',
+            '产品', '產品', '服务', '服務', '描述', 'product', 'service', 'detail', 'description',
+            '设备名称', '設備名稱', '型号', '型號', '品名', '项目', '項目', '名称', '名稱',
+            '规格', '規格', '货物名称', '貨物名稱', '产品名称', '產品名稱', '产品型号', '產品型號',
+            '规格型号', '規格型號', '规格参数', '規格參數', '物料名称', '物料名稱',
+            '物料描述', '货品名称', '貨品名稱', '货物', '貨物', '内容', '內容',
+            '说明', '說明', 'item', 'model', 'part', '物料', '项目名称', '項目名稱',
+            '設備', '设备',
         ],
         'price': [
-            '价格', '单价', '金额', 'price', 'amount', '报价', '总价', '小计',
-            '含税单价', '不含税单价', '含税总价', '未税单价', '未税总价',
-            '单价(元)', '合计金额', '金额(元)', '费用', '单价(含税)',
-            '售价', '成本价', 'unit price', 'total', '小计金额',
+            '价格', '價格', '单价', '單價', '金额', '金額', 'price', 'amount', '报价', '報價',
+            '总价', '總價', '小计', '小計', '含税单价', '含稅單價', '不含税单价',
+            '含税总价', '含稅總價', '未税单价', '未稅單價', '未税总价', '未稅總價',
+            '合计金额', '合計金額', '费用', '費用', '售价', '售價', '成本价', '成本價',
+            'unit price', 'total', '小计金额', '小計金額', '总计', '總計',
         ],
-        'currency': ['币种', '货币', 'currency', '单位', '币别'],
-        'category': ['类别', '分类', 'category', 'type', '类型', '产品类别', '商品类别', '物料类别', '品类'],
+        'currency': ['币种', '幣種', '货币', '貨幣', 'currency', '币别', '幣別', '货币单位', '貨幣單位'],
+        'category': [
+            '类别', '類別', '分类', '分類', 'category', 'type', '类型', '類型',
+            '产品类别', '產品類別', '商品类别', '商品類別', '物料类别', '物料類別', '品类', '品類',
+        ],
     }
 
     result = {}
@@ -608,30 +677,54 @@ def extract_from_row_enhanced(row: tuple, col_map: dict) -> dict:
     """Enhanced extraction — handles Excel numeric types and multi-column detail"""
     item = {}
     for field, idx in col_map.items():
-        if idx < len(row):
-            val = row[idx]
-            if val is None or (isinstance(val, str) and not val.strip()):
-                continue
-            if field == 'price':
-                if isinstance(val, (int, float)):
-                    item[field] = float(val)
-                else:
-                    try:
-                        s = str(val).replace(',', '').replace('¥', '').replace('￥', '').replace(' ', '')
-                        item[field] = float(s)
-                    except ValueError:
-                        item[field] = None
-            elif field == 'product_service_detail':
-                existing = item.get(field, '')
-                s = str(val).strip()
-                if existing and s and s != 'None':
-                    item[field] = existing + ' ' + s
-                else:
-                    item[field] = s
+        if idx >= len(row):
+            continue
+
+        val = row[idx]
+
+        # 特殊处理：product_service_detail 列可能为空，需检查相邻列
+        if field == 'product_service_detail':
+            s = str(val).strip() if val is not None else ''
+            if not s or s == 'None':
+                # 检查 idx+1, idx+2
+                for offset in range(1, 4):
+                    adj_idx = idx + offset
+                    if adj_idx < len(row) and row[adj_idx] is not None:
+                        adj_s = str(row[adj_idx]).strip()
+                        if adj_s and adj_s != 'None' and len(adj_s) > 1:
+                            item[field] = adj_s
+                            break
+                if field not in item:
+                    item[field] = s if s else ''
             else:
-                s = str(val).strip()
-                if s and s != 'None':
-                    item[field] = s
+                item[field] = s
+            continue
+
+        if val is None or (isinstance(val, str) and not val.strip()):
+            continue
+        if field == 'price':
+            if isinstance(val, (int, float)):
+                item[field] = float(val)
+            else:
+                try:
+                    s = str(val).replace(',', '').replace('¥', '').replace('￥', '').replace(' ', '')
+                    item[field] = float(s)
+                except ValueError:
+                    item[field] = None
+        elif field == 'product_service_detail':
+            existing = item.get(field, '')
+            s = str(val).strip()
+            if existing and s and s != 'None':
+                item[field] = existing + ' ' + s
+            else:
+                item[field] = s
+        else:
+            s = str(val).strip()
+            if s and s != 'None':
+                # 币种不应是纯数字
+                if field == 'currency' and re.match(r'^[\d.,]+$', s):
+                    continue
+                item[field] = s
 
     item.setdefault('supplier_company', '')
     item.setdefault('contact_name', '')
