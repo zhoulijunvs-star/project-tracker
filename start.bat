@@ -1,43 +1,40 @@
 @echo off
-chcp 65001 >nul
 echo ========================================
-echo   Project Tracker - Docker 部署
+echo    Project Tracker - Docker Deploy
 echo ========================================
 echo.
 
-REM Check if Docker is running
 docker info >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [错误] Docker 未运行，请先启动 Docker Desktop
+    echo [ERR] Docker not running. Start Docker Desktop first.
     pause
     exit /b 1
 )
 
-echo [1/3] 构建 Docker 镜像...
+echo [1/3] Building Docker image...
 docker-compose build
 if %errorlevel% neq 0 (
-    echo [错误] 构建失败
+    echo [ERR] Build failed.
     pause
     exit /b 1
 )
 
 echo.
-echo [2/3] 启动容器...
+echo [2/3] Starting container...
 docker-compose up -d
 if %errorlevel% neq 0 (
-    echo [错误] 启动失败
+    echo [ERR] Start failed.
     pause
     exit /b 1
 )
 
 echo.
-echo [3/3] 部署完成！
+echo [3/3] Deploy complete!
 echo.
-echo   访问地址: http://localhost:8000
+echo    Open: http://localhost:8000
 echo.
-echo 常用命令:
-echo   查看日志: docker-compose logs -f
-echo   停止服务: docker-compose down
-echo   重启服务: docker-compose restart
+echo Commands:
+echo    Logs : docker-compose logs -f
+echo    Stop : docker-compose down
 echo.
 pause
