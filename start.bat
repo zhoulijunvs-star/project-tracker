@@ -11,8 +11,21 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+REM Detect docker-compose command (v1: docker-compose, v2: docker compose)
+set DOCKER_COMPOSE=docker compose
+docker compose version >nul 2>&1
+if %errorlevel% neq 0 (
+    docker-compose version >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo [ERR] docker compose not found.
+        pause
+        exit /b 1
+    )
+    set DOCKER_COMPOSE=docker-compose
+)
+
 echo [1/3] Building Docker image...
-docker-compose build
+%DOCKER_COMPOSE% build
 if %errorlevel% neq 0 (
     echo [ERR] Build failed.
     pause
@@ -21,7 +34,7 @@ if %errorlevel% neq 0 (
 
 echo.
 echo [2/3] Starting container...
-docker-compose up -d
+%DOCKER_COMPOSE% up -d
 if %errorlevel% neq 0 (
     echo [ERR] Start failed.
     pause
@@ -34,7 +47,7 @@ echo.
 echo    Open: http://localhost:8000
 echo.
 echo Commands:
-echo    Logs : docker-compose logs -f
-echo    Stop : docker-compose down
+echo    Logs : %DOCKER_COMPOSE% logs -f
+echo    Stop : %DOCKER_COMPOSE% down
 echo.
 pause
