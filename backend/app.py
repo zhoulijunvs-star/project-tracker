@@ -427,6 +427,22 @@ def auto_categorize(text):
     return '其他设备'
 
 
+@app.get('/api/supplier/{name}/contacts')
+def supplier_contacts(name: str, db: Session = Depends(get_db)):
+    """获取供应商的最新联系方式"""
+    q = db.query(SupplierQuote).filter(
+        SupplierQuote.supplier_company == name
+    ).order_by(SupplierQuote.created_at.desc()).first()
+    if q:
+        return {
+            'supplier_company': q.supplier_company,
+            'contact_name': q.contact_name or '',
+            'phone': q.phone or '',
+            'email': q.email or '',
+        }
+    raise HTTPException(404, '供应商不存在')
+
+
 def update_price_references(db: Session):
     """Rebuild price_references from all supplier_quotes — with normalization"""
     db.query(PriceReference).delete()
@@ -449,6 +465,17 @@ def update_price_references(db: Session):
         currencies = list(set(q.currency for q in qlist if q.currency))
         suppliers = list(set(q.supplier_company for q in qlist if q.supplier_company))
         latest = max((q.created_at for q in qlist if q.created_at), default=datetime.now())
+
+        # 收集每个供应商的联系方式（取最新的）
+        supplier_contacts = {}
+        for q in qlist:
+            sc = q.supplier_company
+            if sc and sc not in supplier_contacts:
+                supplier_contacts[sc] = {
+                    'contact': q.contact_name or '',
+                    'phone': q.phone or '',
+                    'email': q.email or '',
+                }
 
         # 找出最低价和最高价的供应商
         min_q = min((q for q in qlist if q.price is not None), key=lambda q: q.price, default=None)

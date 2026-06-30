@@ -534,7 +534,9 @@ async function loadPriceRefs() {
         tbody.innerHTML = refs.map(r => {
             let suppliers = [];
             try { suppliers = JSON.parse(r.supplier_list || '[]'); } catch (e) {}
-            let supplierDisplay = suppliers.join(', ');
+            let supplierDisplay = suppliers.map(s =>
+                `<span class="clickable" onclick="showSupplierContact('${s.replace(/'/g, "\\'")}')" title="点击查看联系方式">${esc(s)}</span>`
+            ).join(', ');
             return `
             <tr>
                 <td><input type="checkbox" class="prcheck" value="${r.id}" style="cursor:pointer"></td>
@@ -601,6 +603,21 @@ async function batchDeletePriceRefs() {
         toast(`已删除 ${data.deleted} 条`);
     } catch (e) {
         toast(e.message, 'error');
+    }
+}
+
+async function showSupplierContact(name) {
+    try {
+        const c = await apiGet(`/supplier/${encodeURIComponent(name)}/contacts`);
+        openModal(`
+        <div class="modal-header"><h3>${esc(c.supplier_company)}</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+        <div style="display:grid;grid-template-columns:80px 1fr;gap:12px;font-size:14px">
+            <div style="color:var(--text-secondary)">联系人</div><div>${esc(c.contact_name || '-')} <button class="btn btn-sm" onclick="copyText('${(c.contact_name || '').replace(/'/g, "\\'")}')" style="margin-left:4px">复制</button></div>
+            <div style="color:var(--text-secondary)">电话</div><div>${esc(c.phone || '-')} <button class="btn btn-sm" onclick="copyText('${(c.phone || '').replace(/'/g, "\\'")}')" style="margin-left:4px">复制</button></div>
+            <div style="color:var(--text-secondary)">邮箱</div><div>${esc(c.email || '-')} <button class="btn btn-sm" onclick="copyText('${(c.email || '').replace(/'/g, "\\'")}')" style="margin-left:4px">复制</button></div>
+        </div>`);
+    } catch (e) {
+        toast('未找到该供应商的联系方式', 'error');
     }
 }
 
