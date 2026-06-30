@@ -382,11 +382,19 @@ def extract_model(text):
             if len(m) >= 4 and not m.lower() in ('unit', 'total', 'model', 'item', 'mop', 'hkd', 'cny'):
                 all_matches.append(m)
 
-    # 去重，保留长的（更具体的）
+    # 去重并过滤子串
     seen = set()
     uniq = []
-    for m in sorted(all_matches, key=len, reverse=True):
-        if m not in seen:
+    for m in sorted(all_matches, key=lambda x: (-len(x), x)):
+        if m in seen:
+            continue
+        # 如果 m 是某个已加入型号的子串，跳过
+        is_sub = False
+        for existing in uniq:
+            if m in existing and m != existing:
+                is_sub = True
+                break
+        if not is_sub:
             seen.add(m)
             uniq.append(m)
     return ', '.join(uniq[:3])
@@ -400,8 +408,8 @@ def auto_categorize(text):
 
     rules = [
         (['呼叫', '緊急', 'emergency', 'pull cord', '按钮', '按鈕', '警報', '报警', 'alarm', '蜂鳴', '蜂鸣', 'buzzer', '叫唤', '叫喚', '护士站', '護士站', 'nurse call', '閘道', '闸道'], '呼叫/报警系统'),
+        (['摄像头', '摄像机', '攝像機', 'camera', 'cam', '半球', '筒型', '防爆', '球机', '球機', 'ipc-', 'hic', 'ds-2c', 'ds-tcp'], '安防摄像头'),
         (['停车', '停車', 'parking', '引导', '引導', '车位', '車位', '泊車', '泊车'], '停车系统'),
-        (['摄像头', '摄像机', '攝像機', 'camera', 'cam', '半球', '筒型', '防爆', '球机', '球機', 'ipc-', 'hic', 'ds-2c'], '安防摄像头'),
         (['门禁', '門禁', '闸机', '閘機', 'access control', '读卡器', '讀卡器', '控制器', '刷卡', '人脸识别', '人臉識別', '指纹', '指紋', '电梯控制', '電梯控制'], '门禁系统'),
         (['服务器', '服務器', 'server', 'workstation', '软件', '軟件', 'license', '许可', '許可', 'hikcentral'], '软件/服务器'),
         (['交换机', '交換機', 'switch', 'poe', '路由器', 'router', '网关', 'gateway', 'ap ', '无线', '光模块', '光模塊', '配线架', '配線架', 'rj45', 'patch panel', '光纤', '光纖', 'odf'], '网络设备'),
