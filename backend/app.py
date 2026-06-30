@@ -335,6 +335,17 @@ def delete_price_reference(ref_id: int, db: Session = Depends(get_db)):
     return {'ok': True}
 
 
+@app.post('/api/price-references/batch-delete')
+def batch_delete_price_refs(data: dict, db: Session = Depends(get_db)):
+    """批量删除价格参考"""
+    ids = data.get('ids', [])
+    if not ids:
+        raise HTTPException(400, '请提供要删除的ID列表')
+    deleted = db.query(PriceReference).filter(PriceReference.id.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+    return {'ok': True, 'deleted': deleted}
+
+
 def update_price_references(db: Session):
     """Rebuild price_references from all supplier_quotes"""
     db.query(PriceReference).delete()

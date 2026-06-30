@@ -528,7 +528,7 @@ async function loadPriceRefs() {
 
         const tbody = document.querySelector('#priceTable tbody');
         if (refs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-secondary);padding:30px">暂无价格参考，录入供应商报价后自动生成</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-secondary);padding:30px">暂无价格参考，录入供应商报价后自动生成</td></tr>';
             return;
         }
         tbody.innerHTML = refs.map(r => {
@@ -536,6 +536,7 @@ async function loadPriceRefs() {
             try { suppliers = JSON.parse(r.supplier_list || '[]'); } catch (e) {}
             return `
             <tr>
+                <td><input type="checkbox" class="prcheck" value="${r.id}" style="cursor:pointer"></td>
                 <td><span class="tag tag-success">${esc(r.category)}</span></td>
                 <td>${esc(r.product_service_name)}</td>
                 <td>${r.avg_price != null ? r.currency + ' ' + r.avg_price.toFixed(2) : '-'}</td>
@@ -569,6 +570,33 @@ async function deletePriceRef(id) {
         await apiDel(`/price-references/${id}`);
         loadPriceRefs();
         toast('已删除');
+    } catch (e) {
+        toast(e.message, 'error');
+    }
+}
+
+function toggleAllPriceRefs(el) {
+    const checked = el.checked !== undefined ? el.checked : !el._allChecked;
+    if (el.tagName === 'BUTTON') el._allChecked = checked;
+    document.querySelectorAll('.prcheck').forEach(cb => { cb.checked = checked; });
+    const thCheck = document.querySelector('#priceTable thead input[type=checkbox]');
+    if (thCheck) thCheck.checked = checked;
+}
+
+async function batchDeletePriceRefs() {
+    const checks = document.querySelectorAll('.prcheck:checked');
+    if (checks.length === 0) { toast('请先选择要删除的价格参考', 'error'); return; }
+    if (!confirm(`确定要删除选中的 ${checks.length} 条价格参考吗？`)) return;
+    const ids = Array.from(checks).map(c => parseInt(c.value));
+    try {
+        const r = await fetch(`${API}/price-references/batch-delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids }),
+        });
+        const data = await r.json();
+        loadPriceRefs();
+        toast(`已删除 ${data.deleted} 条`);
     } catch (e) {
         toast(e.message, 'error');
     }

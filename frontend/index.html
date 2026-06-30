@@ -78,7 +78,12 @@
 </select>
 <button class="btn btn-primary" onclick="refreshPriceRefs()">刷新统计</button>
 </div></div>
+<div class="btn-group" style="margin-bottom:10px">
+<button class="btn btn-sm" onclick="toggleAllPriceRefs(this)">全选</button>
+<button class="btn btn-sm btn-danger" onclick="batchDeletePriceRefs()">删除选中</button>
+</div>
 <div class="table-wrap"><table id="priceTable"><thead><tr>
+<th style="width:30px"><input type="checkbox" onchange="toggleAllPriceRefs(this)" style="cursor:pointer"></th>
 <th>类别</th><th>产品/服务名称</th><th>均价</th><th>最低价</th><th>最高价</th><th>币种</th><th>报价次数</th><th>供应商</th><th>最近报价</th><th style="width:50px">操作</th>
 </tr></thead><tbody></tbody></table></div>
 </div>
