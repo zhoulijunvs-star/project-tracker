@@ -324,6 +324,17 @@ def list_price_categories(db: Session = Depends(get_db)):
     return [c[0] for c in cats]
 
 
+@app.delete('/api/price-references/{ref_id}')
+def delete_price_reference(ref_id: int, db: Session = Depends(get_db)):
+    """删除单条价格参考记录"""
+    ref = db.query(PriceReference).get(ref_id)
+    if not ref:
+        raise HTTPException(404, '价格参考不存在')
+    db.delete(ref)
+    db.commit()
+    return {'ok': True}
+
+
 def update_price_references(db: Session):
     """Rebuild price_references from all supplier_quotes"""
     db.query(PriceReference).delete()

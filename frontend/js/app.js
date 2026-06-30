@@ -528,7 +528,7 @@ async function loadPriceRefs() {
 
         const tbody = document.querySelector('#priceTable tbody');
         if (refs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-secondary);padding:30px">暂无价格参考，录入供应商报价后自动生成</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-secondary);padding:30px">暂无价格参考，录入供应商报价后自动生成</td></tr>';
             return;
         }
         tbody.innerHTML = refs.map(r => {
@@ -545,6 +545,7 @@ async function loadPriceRefs() {
                 <td>${r.quote_count}</td>
                 <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${suppliers.join(', ')}</td>
                 <td>${r.latest_quote_date || '-'}</td>
+                <td><button class="btn btn-sm btn-danger" onclick="deletePriceRef(${r.id})" title="删除">✕</button></td>
             </tr>`;
         }).join('');
     } catch (e) {
@@ -558,8 +559,18 @@ async function refreshPriceRefs() {
         loadPriceRefs();
         toast('价格参考已刷新');
     } catch (e) {
-        // If no dedicated refresh endpoint, trigger by loading
         loadPriceRefs();
+    }
+}
+
+async function deletePriceRef(id) {
+    if (!confirm('确定要删除这条价格参考吗？（不会影响原始报价数据）')) return;
+    try {
+        await apiDel(`/price-references/${id}`);
+        loadPriceRefs();
+        toast('已删除');
+    } catch (e) {
+        toast(e.message, 'error');
     }
 }
 
