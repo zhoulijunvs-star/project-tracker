@@ -362,24 +362,34 @@ def t2s(text):
 
 
 def extract_model(text):
-    """从产品描述中提取设备型号（字母数字混合、含连字符的编码）"""
+    """从产品描述中提取设备型号（字母数字混合编码）"""
     if not text:
         return ''
-    # 匹配常见型号格式：含字母+数字+可选的连字符
+    # 匹配常见型号格式
     patterns = [
-        r'\b[A-Z]{2,}[\s-]?[A-Z0-9][A-Za-z0-9]+(?:[\s-][A-Za-z0-9.-]+){0,3}\b',  # NGGTWY2-HNGGWPWR-AK
-        r'\b[A-Z]{1,3}\d{2,}[A-Z]*\b',  # DS-TPM400-FP, NS24.1
-        r'\b[A-Z]\d{2,}(?:[A-Z]{1,3})?\b',  # RK1, CPP24
-        r'\b\d{1,2}[A-Z]{1,3}[A-Za-z0-9.-]+\b',  # 6A配线架 related
+        # 全字母数字连字符格式: NGGTWY2-HNGGWPWR-AK, DS-TPM400-FP, HC-IMT-UNITEHC-IMT-2.0
+        r'\b[A-Z][A-Z0-9]+(?:-[A-Z0-9]+){1,4}\b',
+        # 短型号: NGTDSPA-H, NULAPC3-HU, NUPC-HE
+        r'\b[A-Z]{2,}[A-Z0-9]*(?:-[A-Z][A-Z]?)?\b',
+        # 纯数字+字母: DS2CD, NS24
+        r'\b[A-Z]{1,3}\d{2,}[A-Z]*\b',
     ]
+    all_matches = []
     for pat in patterns:
         matches = re.findall(pat, text)
-        if matches:
-            # 去重并取最长的
-            uniq = list(dict.fromkeys(matches))
-            uniq.sort(key=len, reverse=True)
-            return ', '.join(uniq[:3])  # 最多3个型号
-    return ''
+        for m in matches:
+            # 过滤掉太短的或明显不是型号的
+            if len(m) >= 4 and not m.lower() in ('unit', 'total', 'model', 'item', 'mop', 'hkd', 'cny'):
+                all_matches.append(m)
+
+    # 去重，保留长的（更具体的）
+    seen = set()
+    uniq = []
+    for m in sorted(all_matches, key=len, reverse=True):
+        if m not in seen:
+            seen.add(m)
+            uniq.append(m)
+    return ', '.join(uniq[:3])
 
 
 def auto_categorize(text):
@@ -389,12 +399,12 @@ def auto_categorize(text):
     s = text.lower()
 
     rules = [
+        (['呼叫', '緊急', 'emergency', 'pull cord', '按钮', '按鈕', '警報', '报警', 'alarm', '蜂鳴', '蜂鸣', 'buzzer', '叫唤', '叫喚', '护士站', '護士站', 'nurse call', '閘道', '闸道'], '呼叫/报警系统'),
+        (['停车', '停車', 'parking', '引导', '引導', '车位', '車位', '泊車', '泊车'], '停车系统'),
         (['摄像头', '摄像机', '攝像機', 'camera', 'cam', '半球', '筒型', '防爆', '球机', '球機', 'ipc-', 'hic', 'ds-2c'], '安防摄像头'),
         (['门禁', '門禁', '闸机', '閘機', 'access control', '读卡器', '讀卡器', '控制器', '刷卡', '人脸识别', '人臉識別', '指纹', '指紋', '电梯控制', '電梯控制'], '门禁系统'),
-        (['交换机', '交換機', 'switch', 'poe', '路由器', 'router', '网关', '网关', 'gateway', 'ap ', '无线', '光模块', '光模塊', '配线架', '配線架', 'rj45', 'patch panel', '光纤', '光纖', 'odf'], '网络设备'),
-        (['呼叫', '緊急', 'emergency', 'pull cord', '按钮', '按鈕', '警報', '报警', 'alarm', '蜂鳴', '蜂鸣', 'buzzer', '叫唤', '叫喚', '护士站', '護士站'], '呼叫/报警系统'),
-        (['停车', '停車', 'parking', '引导', '引導', '车位', '車位', '泊車', '泊车'], '停车系统'),
         (['服务器', '服務器', 'server', 'workstation', '软件', '軟件', 'license', '许可', '許可', 'hikcentral'], '软件/服务器'),
+        (['交换机', '交換機', 'switch', 'poe', '路由器', 'router', '网关', 'gateway', 'ap ', '无线', '光模块', '光模塊', '配线架', '配線架', 'rj45', 'patch panel', '光纤', '光纖', 'odf'], '网络设备'),
         (['显示', '顯示', 'display', '屏幕', '屏', 'lcd', 'led', '监视器', '監視器', '拼接'], '显示设备'),
         (['机柜', '機櫃', 'rack', '机架', '機架', '理线', '理線', 'pdu'], '机柜/配件'),
         (['线缆', '線纜', 'cable', '网线', '網線', '跳线', '跳線', 'utp', 'cat6', 'cat5', '喉管', '管道'], '线缆/管材'),
