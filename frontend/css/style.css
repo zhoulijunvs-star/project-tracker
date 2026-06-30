@@ -158,6 +158,8 @@ tr:hover td { background: #FAFBFC; }
 .tag-success { background: #E1F5EE; color: var(--success); }
 .tag-pending { background: #F3F4F6; color: var(--text-secondary); }
 .tag-danger { background: #FCEBEB; color: var(--danger); }
+.tag-info { background: #E6F1FB; color: var(--primary); }
+.tag-warning { background: #FAEEDA; color: var(--warning); }
 
 /* Modal */
 .modal-overlay {

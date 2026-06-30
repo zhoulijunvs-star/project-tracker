@@ -43,6 +43,7 @@ class Project(Base):
     cost_price = Column(Float)  # 成本价格
     is_landed = Column(Boolean, default=False)  # 是否落地
     landed_date = Column(Date)  # 落地日期
+    status = Column(String(50), default='售前')  # 项目进度：售前/交付中/已完工/已验收/维保中/已关闭
     category = Column(String(200))  # 项目类别
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

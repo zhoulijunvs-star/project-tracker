@@ -196,7 +196,7 @@ async function loadProjects() {
             <td>${p.quotation_date || '-'}</td>
             <td>${p.final_price != null ? '&yen;' + fmtNum(p.final_price) : '-'}</td>
             <td>${p.final_margin != null ? '&yen;' + fmtNum(p.final_margin) : '-'}</td>
-            <td><span class="tag ${p.is_landed ? 'tag-success' : 'tag-pending'}">${p.is_landed ? '已落地' : '进行中'}</span></td>
+            <td><span class="tag ${statusClass(p.status)}">${p.status || '售前'}</span></td>
             <td>
                 <button class="btn btn-sm" onclick="editProject(${p.id})">编辑</button>
                 <button class="btn btn-sm btn-danger" onclick="deleteProject(${p.id})">删除</button>
@@ -262,6 +262,18 @@ function projectFormHTML(p, custOpts) {
     <div class="form-group"><label>项目信息/描述</label><textarea class="form-control" name="description">${esc(d.description || '')}</textarea></div>
     <div class="form-row">
     <div class="form-group"><label>报价完成时间</label><input class="form-control" type="date" name="quotation_date" value="${d.quotation_date || ''}"></div>
+    <div class="form-group"><label>项目进度</label><select class="form-control" name="status">
+        <option value="售前" ${(d.status || '售前') === '售前' ? 'selected' : ''}>售前</option>
+        <option value="报价中" ${d.status === '报价中' ? 'selected' : ''}>报价中</option>
+        <option value="投标中" ${d.status === '投标中' ? 'selected' : ''}>投标中</option>
+        <option value="合同谈判" ${d.status === '合同谈判' ? 'selected' : ''}>合同谈判</option>
+        <option value="交付中" ${d.status === '交付中' ? 'selected' : ''}>交付中</option>
+        <option value="已完工" ${d.status === '已完工' ? 'selected' : ''}>已完工</option>
+        <option value="已验收" ${d.status === '已验收' ? 'selected' : ''}>已验收</option>
+        <option value="维保中" ${d.status === '维保中' ? 'selected' : ''}>维保中</option>
+        <option value="已关闭" ${d.status === '已关闭' ? 'selected' : ''}>已关闭</option>
+        <option value="暂停" ${d.status === '暂停' ? 'selected' : ''}>暂停</option>
+    </select></div>
     <div class="form-group"><label>项目类别</label><input class="form-control" name="category" value="${esc(d.category || '')}" placeholder="如：安防监控、综合布线"></div>
     </div>
     <div class="form-row">
@@ -355,6 +367,7 @@ async function saveProject(e, id) {
         description: fd.get('description') || '',
         customer_id: parseInt(fd.get('customer_id')),
         quotation_date: fd.get('quotation_date') || null,
+        status: fd.get('status') || '售前',
         category: fd.get('category') || '',
         final_price: parseFloat(fd.get('final_price')) || null,
         final_price_notes: fd.get('final_price_notes') || '',
@@ -768,4 +781,13 @@ document.addEventListener('DOMContentLoaded', () => {
 function esc(s) {
     if (!s) return '';
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function statusClass(s) {
+    const map = {
+        '售前': 'tag-pending', '报价中': 'tag-pending', '投标中': 'tag-pending', '合同谈判': 'tag-pending',
+        '交付中': 'tag-info', '已完工': 'tag-success', '已验收': 'tag-success',
+        '维保中': 'tag-warning', '已关闭': 'tag-danger', '暂停': 'tag-danger',
+    };
+    return map[s] || 'tag-pending';
 }
