@@ -519,6 +519,7 @@ async def import_quote(
 
     saved_quotes = []
     for item in parsed:
+        qd = item.get('quote_date', '')
         q = SupplierQuote(
             project_id=project_id,
             supplier_company=item.get('supplier_company', ''),
@@ -529,6 +530,7 @@ async def import_quote(
             price=item.get('price'),
             currency=item.get('currency', 'CNY'),
             category=item.get('category', ''),
+            quote_date=parse_date(qd) if qd else None,
         )
         db.add(q)
         db.flush()
@@ -943,6 +945,7 @@ def map_columns(header: List[str]) -> dict:
             '产品类别', '產品類別', '商品类别', '商品類別', '物料类别', '物料類別', '品类', '品類',
         ],
         'brand': ['品牌', '参考品牌', '參考品牌', '可接受品牌', '推荐品牌', '推薦品牌', 'brand', '指定品牌'],
+        'quote_date': ['报价日期', '報價日期', '日期', 'date', '报价时间', '報價時間', '报价日'],
     }
 
     result = {}
@@ -1011,6 +1014,23 @@ def extract_from_row_enhanced(row: tuple, col_map: dict) -> dict:
                 # 币种不应是纯数字
                 if field == 'currency' and re.match(r'^[\d.,]+$', s):
                     continue
+                # 报价日期：处理 Excel 日期类型
+                if field == 'quote_date':
+                    from datetime import datetime as dt
+                    if isinstance(val, dt):
+                        item[field] = val.strftime('%Y-%m-%d')
+                    elif isinstance(val, (int, float)):
+                        # Excel 序列号日期
+                        import openpyxl.utils
+                        from datetime import timedelta
+                        try:
+                            d = dt(1899, 12, 30) + timedelta(days=int(val))
+                            item[field] = d.strftime('%Y-%m-%d')
+                        except:
+                            item[field] = s
+                    else:
+                        item[field] = s
+                    continue
                 item[field] = s
 
     # ── 后处理：品牌信息追加到产品描述 ──
@@ -1044,6 +1064,7 @@ def extract_from_row_enhanced(row: tuple, col_map: dict) -> dict:
     item.setdefault('price', None)
     item.setdefault('currency', 'CNY')
     item.setdefault('category', '')
+    item.setdefault('quote_date', '')
     return item
 
 

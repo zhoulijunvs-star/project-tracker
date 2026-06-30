@@ -652,13 +652,14 @@ function handleFileUpload(files) {
                     </div>
                     <table style="margin-top:8px" id="importResultTable"><thead><tr>
                     <th style="width:30px"><input type="checkbox" onchange="toggleAllQuotes(this)" style="cursor:pointer"></th>
-                    <th>供应商</th><th>产品/服务</th><th>价格</th><th>币种</th><th>类别</th>
+                    <th>供应商</th><th>产品/服务</th><th>报价日期</th><th>价格</th><th>币种</th><th>类别</th>
                     <th style="width:50px">操作</th>
                     </tr></thead><tbody>
                     ${data.quotes.map(q => `<tr id="qrow-${q.id}">
                         <td><input type="checkbox" class="qcheck" value="${q.id}" style="cursor:pointer"></td>
                         <td>${esc(q.supplier_company || '-')}</td>
                         <td>${esc(q.product_service_detail || '-')}</td>
+                        <td>${q.quote_date || '-'}</td>
                         <td>${q.price != null ? q.price : '-'}</td>
                         <td>${q.currency || '-'}</td>
                         <td>${esc(q.category || '-')}</td>

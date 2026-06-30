@@ -64,6 +64,7 @@ class SupplierQuote(Base):
     price = Column(Float)
     currency = Column(String(10), default='CNY')  # CNY/HKD/MOP
     category = Column(String(200))  # 产品/服务归类
+    quote_date = Column(Date)  # 报价日期
     created_at = Column(DateTime, default=datetime.now)
 
     project = relationship('Project', back_populates='supplier_quotes')
