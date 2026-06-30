@@ -656,6 +656,7 @@ def map_columns(header: List[str]) -> dict:
             '类别', '類別', '分类', '分類', 'category', 'type', '类型', '類型',
             '产品类别', '產品類別', '商品类别', '商品類別', '物料类别', '物料類別', '品类', '品類',
         ],
+        'brand': ['品牌', '参考品牌', '參考品牌', '可接受品牌', '推荐品牌', '推薦品牌', 'brand', '指定品牌'],
     }
 
     result = {}
@@ -725,6 +726,29 @@ def extract_from_row_enhanced(row: tuple, col_map: dict) -> dict:
                 if field == 'currency' and re.match(r'^[\d.,]+$', s):
                     continue
                 item[field] = s
+
+    # ── 后处理：品牌信息追加到产品描述 ──
+    brand_info = []
+    for key in list(item.keys()):
+        if key == 'brand' and item[key]:
+            brand_info.append(item.pop(key))
+    # 同时检查 brand 列的相邻列（如"可接受品牌"紧跟在"參考品牌"后）
+    if 'brand' in col_map:
+        brand_idx = col_map['brand']
+        for offset in range(1, 3):
+            adj_idx = brand_idx + offset
+            if adj_idx < len(row) and row[adj_idx] is not None:
+                adj_s = str(row[adj_idx]).strip()
+                if adj_s and adj_s != 'None' and len(adj_s) > 1:
+                    brand_info.append(adj_s)
+                    break
+    if brand_info:
+        brands = ' | '.join(brand_info)
+        pd = item.get('product_service_detail', '')
+        if pd:
+            item['product_service_detail'] = f"{pd} 【品牌: {brands}】"
+        else:
+            item['product_service_detail'] = f"【品牌: {brands}】"
 
     item.setdefault('supplier_company', '')
     item.setdefault('contact_name', '')
