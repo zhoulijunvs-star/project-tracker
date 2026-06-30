@@ -410,7 +410,7 @@ async def import_quote(
 
 
 def parse_excel_quote(content: bytes) -> List[dict]:
-    """解析 Excel 报价文件"""
+    """解析 Excel 报价文件 — 智能识别表头并提取报价数据"""
     import openpyxl
     wb = openpyxl.load_workbook(BytesIO(content), data_only=True)
     results = []
@@ -421,14 +421,37 @@ def parse_excel_quote(content: bytes) -> List[dict]:
         if not rows:
             continue
 
-        header = [str(c).strip().lower() if c else '' for c in rows[0]]
-        col_map = map_columns(header)
+        # ── 1. 智能定位表头（前10行中找含关键词最多的行作为表头）──
+        header_row_idx = 0
+        best_score = 0
+        for i in range(min(10, len(rows))):
+            candidate = [str(c).strip().lower() if c is not None else '' for c in rows[i]]
+            col_map_test = map_columns(candidate)
+            score = len(col_map_test)
+            if score > best_score:
+                best_score = score
+                header_row_idx = i
+                header = candidate
+                col_map = col_map_test
 
-        for row in rows[1:]:
-            if not any(row):
+        if best_score == 0:
+            continue  # 无法识别任何列
+
+        # ── 2. 提取数据行 ──
+        for row in rows[header_row_idx + 1:]:
+            # 跳过全空行
+            if not any(c is not None and str(c).strip() for c in row):
                 continue
-            item = extract_from_row(row, col_map)
-            if item.get('product_service_detail') or item.get('price'):
+
+            item = extract_from_row_enhanced(row, col_map)
+
+            # 跳过汇总行（含"合计"/"总计"等关键词）
+            all_text = ' '.join(str(c) for c in row if c).lower()
+            if any(kw in all_text for kw in ['合计', '总计', 'total', '小计', '备注']):
+                if not item.get('product_service_detail') and not item.get('price'):
+                    continue
+
+            if item.get('product_service_detail') or item.get('price') is not None:
                 results.append(item)
 
     return results
@@ -545,14 +568,25 @@ def parse_pdf_quote(content: bytes) -> List[dict]:
 def map_columns(header: List[str]) -> dict:
     """Map column names to standard field names"""
     mapping = {
-        'supplier_company': ['供应商', '公司', 'supplier', 'company', '厂商', '供货商', '卖方'],
-        'contact_name': ['联系人', 'contact', '姓名', 'name', '对方联系人'],
-        'phone': ['电话', 'phone', 'tel', '手机', 'mobile', '联系电话'],
-        'email': ['邮箱', 'email', 'mail', 'e-mail'],
-        'product_service_detail': ['产品', '服务', '描述', 'product', 'service', 'detail', 'description', '设备名称', '型号', '品名', '项目', '名称', '规格'],
-        'price': ['价格', '单价', '金额', 'price', 'amount', '报价', '总价', '小计'],
-        'currency': ['币种', '货币', 'currency', '单位'],
-        'category': ['类别', '分类', 'category', 'type', '类型'],
+        'supplier_company': ['供应商', '公司', 'supplier', 'company', '厂商', '供货商', '卖方', '单位名称', '客户名称', '报价单位'],
+        'contact_name': ['联系人', 'contact', '姓名', 'name', '对方联系人', '业务员', '销售'],
+        'phone': ['电话', 'phone', 'tel', '手机', 'mobile', '联系电话', '联系方式', '传真'],
+        'email': ['邮箱', 'email', 'mail', 'e-mail', '电子邮箱', '邮件'],
+        'product_service_detail': [
+            '产品', '服务', '描述', 'product', 'service', 'detail', 'description',
+            '设备名称', '型号', '品名', '项目', '名称', '规格', '货物名称',
+            '商品名称', '产品名称', '产品型号', '规格型号', '规格参数',
+            '物料名称', '物料描述', '货品名称', '货物', '内容', '项目名称',
+            '说明', 'item', 'model', 'part', '物料',
+        ],
+        'price': [
+            '价格', '单价', '金额', 'price', 'amount', '报价', '总价', '小计',
+            '含税单价', '不含税单价', '含税总价', '未税单价', '未税总价',
+            '单价(元)', '合计金额', '金额(元)', '费用', '单价(含税)',
+            '售价', '成本价', 'unit price', 'total', '小计金额',
+        ],
+        'currency': ['币种', '货币', 'currency', '单位', '币别'],
+        'category': ['类别', '分类', 'category', 'type', '类型', '产品类别', '商品类别', '物料类别', '品类'],
     }
 
     result = {}
@@ -566,18 +600,39 @@ def map_columns(header: List[str]) -> dict:
 
 
 def extract_from_row(row: tuple, col_map: dict) -> dict:
-    """Extract fields from a row using column mapping"""
+    """Extract fields from a row using column mapping (legacy)"""
+    return extract_from_row_enhanced(row, col_map)
+
+
+def extract_from_row_enhanced(row: tuple, col_map: dict) -> dict:
+    """Enhanced extraction — handles Excel numeric types and multi-column detail"""
     item = {}
     for field, idx in col_map.items():
-        if idx < len(row) and row[idx] is not None:
-            val = str(row[idx]).strip()
+        if idx < len(row):
+            val = row[idx]
+            if val is None or (isinstance(val, str) and not val.strip()):
+                continue
             if field == 'price':
-                try:
-                    item[field] = float(val.replace(',', '').replace('¥', '').replace('￥', ''))
-                except ValueError:
-                    item[field] = None
+                if isinstance(val, (int, float)):
+                    item[field] = float(val)
+                else:
+                    try:
+                        s = str(val).replace(',', '').replace('¥', '').replace('￥', '').replace(' ', '')
+                        item[field] = float(s)
+                    except ValueError:
+                        item[field] = None
+            elif field == 'product_service_detail':
+                existing = item.get(field, '')
+                s = str(val).strip()
+                if existing and s and s != 'None':
+                    item[field] = existing + ' ' + s
+                else:
+                    item[field] = s
             else:
-                item[field] = val
+                s = str(val).strip()
+                if s and s != 'None':
+                    item[field] = s
+
     item.setdefault('supplier_company', '')
     item.setdefault('contact_name', '')
     item.setdefault('phone', '')
