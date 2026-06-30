@@ -397,7 +397,8 @@ async def import_quote(
             category=item.get('category', ''),
         )
         db.add(q)
-        saved_quotes.append(item)
+        db.flush()
+        saved_quotes.append(serialize(q))
 
     db.commit()
     update_price_references(db)
@@ -407,6 +408,34 @@ async def import_quote(
         'count': len(saved_quotes),
         'quotes': saved_quotes,
     }
+
+
+# ════════════════════════════════════════════════════════════
+#  Quote Delete APIs
+# ════════════════════════════════════════════════════════════
+
+@app.delete('/api/quotes/{quote_id}')
+def delete_quote(quote_id: int, db: Session = Depends(get_db)):
+    """删除单条供应商报价"""
+    q = db.query(SupplierQuote).get(quote_id)
+    if not q:
+        raise HTTPException(404, '报价不存在')
+    db.delete(q)
+    db.commit()
+    update_price_references(db)
+    return {'ok': True}
+
+
+@app.post('/api/quotes/batch-delete')
+def batch_delete_quotes(data: dict, db: Session = Depends(get_db)):
+    """批量删除供应商报价"""
+    ids = data.get('ids', [])
+    if not ids:
+        raise HTTPException(400, '请提供要删除的报价ID列表')
+    deleted = db.query(SupplierQuote).filter(SupplierQuote.id.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+    update_price_references(db)
+    return {'ok': True, 'deleted': deleted}
 
 
 def parse_excel_quote(content: bytes) -> List[dict]:

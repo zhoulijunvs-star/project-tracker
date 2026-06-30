@@ -592,16 +592,26 @@ function handleFileUpload(files) {
             if (data.ok) {
                 resultDiv.innerHTML = `
                 <div class="card" style="margin-top:12px;border-color:var(--success)">
-                    <p style="color:var(--success);font-weight:500">导入成功！共解析 ${data.count} 条报价记录。</p>
-                    <table style="margin-top:8px"><thead><tr>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                        <p style="color:var(--success);font-weight:500;margin:0">导入成功！共解析 ${data.count} 条报价记录。</p>
+                        <div class="btn-group">
+                            <button class="btn btn-sm" onclick="toggleAllQuotes(this)">全选</button>
+                            <button class="btn btn-sm btn-danger" onclick="batchDeleteQuotes()">删除选中</button>
+                        </div>
+                    </div>
+                    <table style="margin-top:8px" id="importResultTable"><thead><tr>
+                    <th style="width:30px"><input type="checkbox" onchange="toggleAllQuotes(this)" style="cursor:pointer"></th>
                     <th>供应商</th><th>产品/服务</th><th>价格</th><th>币种</th><th>类别</th>
+                    <th style="width:50px">操作</th>
                     </tr></thead><tbody>
-                    ${data.quotes.map(q => `<tr>
+                    ${data.quotes.map(q => `<tr id="qrow-${q.id}">
+                        <td><input type="checkbox" class="qcheck" value="${q.id}" style="cursor:pointer"></td>
                         <td>${esc(q.supplier_company || '-')}</td>
                         <td>${esc(q.product_service_detail || '-')}</td>
                         <td>${q.price != null ? q.price : '-'}</td>
                         <td>${q.currency || '-'}</td>
                         <td>${esc(q.category || '-')}</td>
+                        <td><button class="btn btn-sm btn-danger" onclick="deleteQuote(${q.id})" title="删除">✕</button></td>
                     </tr>`).join('')}
                     </tbody></table>
                 </div>`;
@@ -613,6 +623,50 @@ function handleFileUpload(files) {
         .catch(e => {
             resultDiv.innerHTML = `<p style="color:var(--danger)">导入失败: ${e.message}</p>`;
         });
+}
+
+// ── Quote Delete Functions ──
+
+async function deleteQuote(id) {
+    if (!confirm('确定要删除这条报价吗？')) return;
+    try {
+        await apiDel(`/quotes/${id}`);
+        const row = document.getElementById(`qrow-${id}`);
+        if (row) row.remove();
+        toast('已删除');
+    } catch (e) {
+        toast(e.message, 'error');
+    }
+}
+
+async function batchDeleteQuotes() {
+    const checks = document.querySelectorAll('.qcheck:checked');
+    if (checks.length === 0) { toast('请先选择要删除的报价', 'error'); return; }
+    if (!confirm(`确定要删除选中的 ${checks.length} 条报价吗？`)) return;
+    const ids = Array.from(checks).map(c => parseInt(c.value));
+    try {
+        const r = await fetch(`${API}/quotes/batch-delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids }),
+        });
+        const data = await r.json();
+        ids.forEach(id => {
+            const row = document.getElementById(`qrow-${id}`);
+            if (row) row.remove();
+        });
+        toast(`已删除 ${data.deleted} 条报价`);
+    } catch (e) {
+        toast(e.message, 'error');
+    }
+}
+
+function toggleAllQuotes(el) {
+    const checked = el.checked !== undefined ? el.checked : !el._allChecked;
+    if (el.tagName === 'BUTTON') el._allChecked = checked;
+    document.querySelectorAll('.qcheck').forEach(cb => { cb.checked = checked; });
+    const thCheck = document.querySelector('#importResultTable thead input[type=checkbox]');
+    if (thCheck) thCheck.checked = checked;
 }
 
 // Drag & drop
