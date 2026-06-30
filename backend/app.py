@@ -346,15 +346,84 @@ def batch_delete_price_refs(data: dict, db: Session = Depends(get_db)):
     return {'ok': True, 'deleted': deleted}
 
 
+# ════════════════════════════════════════════════════════════
+#  Data Processing Helpers
+# ════════════════════════════════════════════════════════════
+
+def t2s(text):
+    """繁体中文转简体"""
+    if not text:
+        return text
+    try:
+        from opencc import OpenCC
+        return OpenCC('t2s').convert(str(text))
+    except ImportError:
+        return text
+
+
+def extract_model(text):
+    """从产品描述中提取设备型号（字母数字混合、含连字符的编码）"""
+    if not text:
+        return ''
+    # 匹配常见型号格式：含字母+数字+可选的连字符
+    patterns = [
+        r'\b[A-Z]{2,}[\s-]?[A-Z0-9][A-Za-z0-9]+(?:[\s-][A-Za-z0-9.-]+){0,3}\b',  # NGGTWY2-HNGGWPWR-AK
+        r'\b[A-Z]{1,3}\d{2,}[A-Z]*\b',  # DS-TPM400-FP, NS24.1
+        r'\b[A-Z]\d{2,}(?:[A-Z]{1,3})?\b',  # RK1, CPP24
+        r'\b\d{1,2}[A-Z]{1,3}[A-Za-z0-9.-]+\b',  # 6A配线架 related
+    ]
+    for pat in patterns:
+        matches = re.findall(pat, text)
+        if matches:
+            # 去重并取最长的
+            uniq = list(dict.fromkeys(matches))
+            uniq.sort(key=len, reverse=True)
+            return ', '.join(uniq[:3])  # 最多3个型号
+    return ''
+
+
+def auto_categorize(text):
+    """根据产品名自动判断设备类别"""
+    if not text:
+        return '未分类'
+    s = text.lower()
+
+    rules = [
+        (['摄像头', '摄像机', '攝像機', 'camera', 'cam', '半球', '筒型', '防爆', '球机', '球機', 'ipc-', 'hic', 'ds-2c'], '安防摄像头'),
+        (['门禁', '門禁', '闸机', '閘機', 'access control', '读卡器', '讀卡器', '控制器', '刷卡', '人脸识别', '人臉識別', '指纹', '指紋', '电梯控制', '電梯控制'], '门禁系统'),
+        (['交换机', '交換機', 'switch', 'poe', '路由器', 'router', '网关', '网关', 'gateway', 'ap ', '无线', '光模块', '光模塊', '配线架', '配線架', 'rj45', 'patch panel', '光纤', '光纖', 'odf'], '网络设备'),
+        (['呼叫', '緊急', 'emergency', 'pull cord', '按钮', '按鈕', '警報', '报警', 'alarm', '蜂鳴', '蜂鸣', 'buzzer', '叫唤', '叫喚', '护士站', '護士站'], '呼叫/报警系统'),
+        (['停车', '停車', 'parking', '引导', '引導', '车位', '車位', '泊車', '泊车'], '停车系统'),
+        (['服务器', '服務器', 'server', 'workstation', '软件', '軟件', 'license', '许可', '許可', 'hikcentral'], '软件/服务器'),
+        (['显示', '顯示', 'display', '屏幕', '屏', 'lcd', 'led', '监视器', '監視器', '拼接'], '显示设备'),
+        (['机柜', '機櫃', 'rack', '机架', '機架', '理线', '理線', 'pdu'], '机柜/配件'),
+        (['线缆', '線纜', 'cable', '网线', '網線', '跳线', '跳線', 'utp', 'cat6', 'cat5', '喉管', '管道'], '线缆/管材'),
+        (['电源', '電源', 'power', 'ups', '电池', '電池', '配电', '配電'], '电源设备'),
+        (['广播', '廣播', '音响', '音響', 'speaker', '喇叭', '功放', '话筒', '話筒', '麦克风', '麥克風'], '广播/音响'),
+        (['对讲', '對講', 'intercom', '门铃', '門鈴', '可视', '可視'], '对讲系统'),
+    ]
+
+    for keywords, category in rules:
+        if any(kw in s for kw in keywords):
+            return category
+    return '其他设备'
+
+
 def update_price_references(db: Session):
-    """Rebuild price_references from all supplier_quotes"""
+    """Rebuild price_references from all supplier_quotes — with normalization"""
     db.query(PriceReference).delete()
     quotes = db.query(SupplierQuote).all()
 
     # Group by (category, product_service_detail)
     groups = defaultdict(list)
     for q in quotes:
-        key = (q.category or '未分类', q.product_service_detail or '未指定')
+        # 繁转简
+        name = t2s(q.product_service_detail or '未指定')
+        cat = t2s(q.category or '未分类')
+        # 自动归类（如果原本未分类）
+        if not q.category or q.category == '未分类':
+            cat = auto_categorize(name)
+        key = (cat, name)
         groups[key].append(q)
 
     for (cat, name), qlist in groups.items():
@@ -363,9 +432,13 @@ def update_price_references(db: Session):
         suppliers = list(set(q.supplier_company for q in qlist if q.supplier_company))
         latest = max((q.created_at for q in qlist if q.created_at), default=datetime.now())
 
+        # 提取设备型号
+        model = extract_model(name)
+
         ref = PriceReference(
             category=cat,
             product_service_name=name,
+            model=model,
             avg_price=round(sum(prices) / len(prices), 2) if prices else None,
             min_price=min(prices) if prices else None,
             max_price=max(prices) if prices else None,

@@ -75,6 +75,7 @@ class PriceReference(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     category = Column(String(200), nullable=False, index=True)
     product_service_name = Column(String(500), nullable=False)
+    model = Column(String(500))  # 设备型号
     avg_price = Column(Float)
     min_price = Column(Float)
     max_price = Column(Float)

@@ -539,13 +539,13 @@ async function loadPriceRefs() {
                 <td><input type="checkbox" class="prcheck" value="${r.id}" style="cursor:pointer"></td>
                 <td><span class="tag tag-success">${esc(r.category)}</span></td>
                 <td>${esc(r.product_service_name)}</td>
+                <td style="font-family:var(--font-mono);font-size:12px;color:var(--primary)">${esc(r.model || '-')}</td>
                 <td>${r.avg_price != null ? r.currency + ' ' + r.avg_price.toFixed(2) : '-'}</td>
                 <td>${r.min_price != null ? r.currency + ' ' + r.min_price.toFixed(2) : '-'}</td>
                 <td>${r.max_price != null ? r.currency + ' ' + r.max_price.toFixed(2) : '-'}</td>
                 <td>${r.currency}</td>
                 <td>${r.quote_count}</td>
                 <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${suppliers.join(', ')}</td>
-                <td>${r.latest_quote_date || '-'}</td>
                 <td><button class="btn btn-sm btn-danger" onclick="deletePriceRef(${r.id})" title="删除">✕</button></td>
             </tr>`;
         }).join('');
