@@ -474,6 +474,21 @@ def update_price_references(db: Session):
 #  Import APIs (PDF / Excel)
 # ════════════════════════════════════════════════════════════
 
+@app.get('/api/import/template')
+def download_template():
+    """下载 Excel 导入模板"""
+    template_path = os.path.join(FRONTEND_DIR, 'template', 'import_template.xlsx')
+    if not os.path.exists(template_path):
+        # 自动生成模板
+        import subprocess
+        os.makedirs(os.path.dirname(template_path), exist_ok=True)
+        subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), 'generate_template.py'), template_path])
+    if os.path.exists(template_path):
+        return FileResponse(template_path, filename='报价导入模板.xlsx',
+                          media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    raise HTTPException(404, '模板文件不存在')
+
+
 @app.post('/api/import/quote')
 async def import_quote(
     file: UploadFile = File(...),
