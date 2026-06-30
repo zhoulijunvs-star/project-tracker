@@ -629,13 +629,18 @@ function handleFileUpload(files) {
         .then(r => r.json())
         .then(data => {
             if (data.ok) {
+                const pendingNote = data.pending ? '<p style="color:var(--warning);font-size:12px;margin:4px 0 8px">这些报价尚未进入价格参考库，请检查后点击"确认入库"</p>' : '';
                 resultDiv.innerHTML = `
                 <div class="card" style="margin-top:12px;border-color:var(--success)">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                        <p style="color:var(--success);font-weight:500;margin:0">导入成功！共解析 ${data.count} 条报价记录。</p>
+                        <div>
+                            <p style="color:var(--success);font-weight:500;margin:0">导入成功！共解析 ${data.count} 条报价记录。</p>
+                            ${pendingNote}
+                        </div>
                         <div class="btn-group">
                             <button class="btn btn-sm" onclick="toggleAllQuotes(this)">全选</button>
                             <button class="btn btn-sm btn-danger" onclick="batchDeleteQuotes()">删除选中</button>
+                            <button class="btn btn-sm btn-success" onclick="confirmImportQuotes()" style="color:var(--success);border-color:var(--success)">确认入库</button>
                         </div>
                     </div>
                     <table style="margin-top:8px" id="importResultTable"><thead><tr>
@@ -706,6 +711,18 @@ function toggleAllQuotes(el) {
     document.querySelectorAll('.qcheck').forEach(cb => { cb.checked = checked; });
     const thCheck = document.querySelector('#importResultTable thead input[type=checkbox]');
     if (thCheck) thCheck.checked = checked;
+}
+
+async function confirmImportQuotes() {
+    if (!confirm('确认将当前已导入的报价加入价格参考库吗？\n\n建议先检查并删除不需要的条目。')) return;
+    try {
+        await apiPost('/import/confirm', {});
+        toast('已入库，价格参考已更新');
+        // Reload price refs if on that page
+        loadPriceRefs();
+    } catch (e) {
+        toast(e.message, 'error');
+    }
 }
 
 // Drag & drop

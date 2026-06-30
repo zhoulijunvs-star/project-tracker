@@ -423,13 +423,21 @@ async def import_quote(
         saved_quotes.append(serialize(q))
 
     db.commit()
-    update_price_references(db)
+    # 不自动更新价格参考，等待用户确认后手动入库
 
     return {
         'ok': True,
         'count': len(saved_quotes),
         'quotes': saved_quotes,
+        'pending': True,  # 标记为待确认
     }
+
+
+@app.post('/api/import/confirm')
+def confirm_import(db: Session = Depends(get_db)):
+    """确认入库：将已导入的报价加入价格参考"""
+    update_price_references(db)
+    return {'ok': True, 'message': '价格参考已更新'}
 
 
 # ════════════════════════════════════════════════════════════
