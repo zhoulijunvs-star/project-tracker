@@ -450,6 +450,10 @@ def update_price_references(db: Session):
         suppliers = list(set(q.supplier_company for q in qlist if q.supplier_company))
         latest = max((q.created_at for q in qlist if q.created_at), default=datetime.now())
 
+        # 找出最低价和最高价的供应商
+        min_q = min((q for q in qlist if q.price is not None), key=lambda q: q.price, default=None)
+        max_q = max((q for q in qlist if q.price is not None), key=lambda q: q.price, default=None)
+
         # 提取设备型号
         model = extract_model(name)
 
@@ -460,6 +464,8 @@ def update_price_references(db: Session):
             avg_price=round(sum(prices) / len(prices), 2) if prices else None,
             min_price=min(prices) if prices else None,
             max_price=max(prices) if prices else None,
+            min_price_supplier=min_q.supplier_company if min_q else '',
+            max_price_supplier=max_q.supplier_company if max_q else '',
             currency=currencies[0] if len(currencies) == 1 else 'MIXED',
             quote_count=len(qlist),
             supplier_list=json.dumps(suppliers, ensure_ascii=False),

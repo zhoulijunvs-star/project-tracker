@@ -534,6 +534,13 @@ async function loadPriceRefs() {
         tbody.innerHTML = refs.map(r => {
             let suppliers = [];
             try { suppliers = JSON.parse(r.supplier_list || '[]'); } catch (e) {}
+            let priceNotes = [];
+            if (r.min_price_supplier) priceNotes.push(`最低: ${r.min_price_supplier}`);
+            if (r.max_price_supplier) priceNotes.push(`最高: ${r.max_price_supplier}`);
+            let supplierDisplay = suppliers.join(', ');
+            if (priceNotes.length && suppliers.length > 1) {
+                supplierDisplay += ` (${priceNotes.join(', ')})`;
+            }
             return `
             <tr>
                 <td><input type="checkbox" class="prcheck" value="${r.id}" style="cursor:pointer"></td>
@@ -541,11 +548,11 @@ async function loadPriceRefs() {
                 <td>${esc(r.product_service_name)}</td>
                 <td style="font-family:var(--font-mono);font-size:12px;color:var(--primary)">${esc(r.model || '-')}</td>
                 <td>${r.avg_price != null ? r.currency + ' ' + r.avg_price.toFixed(2) : '-'}</td>
-                <td>${r.min_price != null ? r.currency + ' ' + r.min_price.toFixed(2) : '-'}</td>
-                <td>${r.max_price != null ? r.currency + ' ' + r.max_price.toFixed(2) : '-'}</td>
+                <td style="color:var(--success)">${r.min_price != null ? r.currency + ' ' + r.min_price.toFixed(2) : '-'}</td>
+                <td style="color:var(--danger)">${r.max_price != null ? r.currency + ' ' + r.max_price.toFixed(2) : '-'}</td>
                 <td>${r.currency}</td>
                 <td>${r.quote_count}</td>
-                <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${suppliers.join(', ')}</td>
+                <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:12px">${supplierDisplay}</td>
                 <td><button class="btn btn-sm btn-danger" onclick="deletePriceRef(${r.id})" title="删除">✕</button></td>
             </tr>`;
         }).join('');

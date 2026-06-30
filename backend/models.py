@@ -79,6 +79,8 @@ class PriceReference(Base):
     avg_price = Column(Float)
     min_price = Column(Float)
     max_price = Column(Float)
+    min_price_supplier = Column(String(500))  # 最低价供应商
+    max_price_supplier = Column(String(500))  # 最高价供应商
     currency = Column(String(10), default='CNY')
     quote_count = Column(Integer, default=1)
     supplier_list = Column(Text)  # JSON array of supplier names
