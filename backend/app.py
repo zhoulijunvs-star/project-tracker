@@ -722,10 +722,11 @@ def parse_pdf_quote(content: bytes) -> List[dict]:
                     is_new_item = True
 
         if is_new_item:
-            # 保存上一个物品
+            # 保存上一个物品（跳过无数量的合计行）
             if current_item:
                 current_item['product_service_detail'] = ' '.join(current_product).strip()
-                if len(current_item['product_service_detail']) > 3 or current_item['price']:
+                has_unit = current_item.pop('_has_unit', False)
+                if has_unit and (len(current_item['product_service_detail']) > 3 or current_item['price']):
                     results.append(current_item)
 
             # 开始新物品
@@ -739,10 +740,16 @@ def parse_pdf_quote(content: bytes) -> List[dict]:
                 'price': None,
                 'currency': currency,
                 'category': '',
+                '_has_unit': False,
             }
 
         # 分析右侧数字: [qty, unit_price, total] 或 [total]
         if right_nums and current_item:
+            # 检查该行是否包含 "unit" （有数量行 = 真正物品）
+            has_unit_in_row = any(w['text'].lower() == 'unit' for w in right_words)
+            if has_unit_in_row:
+                current_item['_has_unit'] = True
+
             if len(right_nums) >= 2:
                 # 有多个数字：跳过 quantity 取 unit_price
                 # quantity 特点：小整数 (< 200)
@@ -766,6 +773,7 @@ def parse_pdf_quote(content: bytes) -> List[dict]:
     # 保存最后一个物品
     if current_item:
         current_item['product_service_detail'] = ' '.join(current_product).strip()
+        current_item.pop('_has_unit', None)
         if len(current_item['product_service_detail']) > 3 or current_item['price']:
             results.append(current_item)
 
