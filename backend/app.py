@@ -594,75 +594,182 @@ def parse_csv_quote(content: bytes) -> List[dict]:
 
 
 def parse_pdf_quote(content: bytes) -> List[dict]:
-    """解析 PDF 报价文件"""
+    """解析 PDF 报价文件 — 基于词坐标的表格提取"""
     import fitz
     doc = fitz.open(stream=content, filetype='pdf')
-    full_text = ''
+
+    # ── 收集所有词的坐标 ──
+    all_words = []
     for page in doc:
-        full_text += page.get_text() + '\n'
+        words = page.get_text('words')
+        for w in words:
+            x0, y0, x1, y1, text, block_no, line_no, word_no = w
+            all_words.append({'x0': x0, 'y0': y0, 'x1': x1, 'text': text.strip()})
 
-    results = []
-    # Try to extract tabular data from the text
-    lines = [l.strip() for l in full_text.split('\n') if l.strip()]
+    if not all_words:
+        return []
 
-    # Heuristic: try to find supplier info first
+    full_text = ' '.join(w['text'] for w in all_words)
+
+    # ── 1. 提取供应商信息 ──
     supplier_company = ''
     contact_name = ''
     phone = ''
     email = ''
 
-    for line in lines:
-        # Look for supplier company name patterns
-        if any(kw in line for kw in ['公司', '供应商', 'Supplier', 'Company']):
-            supplier_company = line.split('：')[-1].split(':')[-1].strip() if supplier_company == '' else supplier_company
-        # Email
-        email_match = re.search(r'[\w.-]+@[\w.-]+\.\w+', line)
-        if email_match and not email:
-            email = email_match.group()
-        # Phone
-        phone_match = re.search(r'1[3-9]\d{9}|\d{3,4}-?\d{7,8}', line)
-        if phone_match and not phone:
-            phone = phone_match.group()
+    # 取第一行公司名（y 最小的词）
+    min_y = min(w['y0'] for w in all_words)
+    first_line = [w for w in all_words if w['y0'] <= min_y + 1]
+    first_line_sorted = sorted(first_line, key=lambda w: w['x0'])
+    supplier_company = ' '.join(w['text'] for w in first_line_sorted if w['x0'] < 200)
+    # 清理：移除 "QUOTATION" 等
+    supplier_company = re.sub(r'\bQUOTATION\b', '', supplier_company).strip()
 
-    # Try to find price info
-    for line in lines:
-        # Look for currency indicators
-        currency = 'CNY'
-        if 'HKD' in line or 'HK$' in line or '港币' in line or '港元' in line:
-            currency = 'HKD'
-        elif 'MOP' in line or 'MOP$' in line or '澳门' in line:
-            currency = 'MOP'
-        elif '$' in line and 'US' in line:
-            currency = 'USD'
+    email_match = re.search(r'[\w.-]+@[\w.-]+\.\w+', full_text)
+    if email_match:
+        email = email_match.group()
+    phone_match = re.search(r'(?:\+?\d{1,3}\s*)?\d{4,5}\s*\d{5,6}', full_text)
+    if phone_match:
+        phone = phone_match.group()
 
-        # Try to extract price (number with decimal)
-        prices = re.findall(r'(?:¥|￥|RMB|CNY|HKD|MOP|USD|\$)?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:元|万)?', line)
-        prices_clean = []
-        for p in prices:
+    # ── 2. 检测币种 ──
+    currency = 'CNY'
+    cu_text = full_text.upper()
+    if '(MOP)' in cu_text:
+        currency = 'MOP'
+    elif '(HKD)' in cu_text:
+        currency = 'HKD'
+    elif '(USD)' in cu_text:
+        currency = 'USD'
+
+    # ── 3. 基于词坐标的表格提取 ──
+    results = []
+    Y_GAP = 5  # 同一行词的最大 y 差异
+
+    # 过滤出表格区域的词（在表头之后，Remarks 之前）
+    header_y = None
+    remarks_y = None
+    for w in all_words:
+        if w['text'] == 'Item' and w['x0'] < 100 and header_y is None:
+            header_y = w['y0']
+        if w['text'] == 'Remarks:' and w['x0'] < 100 and remarks_y is None:
+            remarks_y = w['y0']
+
+    if not header_y:
+        header_y = 130  # fallback
+
+    # 找出所有独立的行（y 坐标分组）
+    data_words = [w for w in all_words if w['y0'] > header_y + 5 and (remarks_y is None or w['y0'] < remarks_y)]
+
+    # 按 y 分组
+    rows = {}  # rounded_y -> list of words
+    for w in data_words:
+        yk = round(w['y0'] / Y_GAP) * Y_GAP
+        if yk not in rows:
+            rows[yk] = []
+        rows[yk].append(w)
+
+    # 按 y 排序，从左到右排序词
+    sorted_rows = sorted(rows.items())
+
+    # 处理每一行
+    current_item = None
+    current_product = []
+
+    for yk, words in sorted_rows:
+        words_sorted = sorted(words, key=lambda w: w['x0'])
+        line_text = ' '.join(w['text'] for w in words_sorted)
+
+        # 跳过表头重复行和 section headers
+        if 'Item' in line_text and 'Model' in line_text and 'Product' in line_text:
+            continue
+        if 'Item' in line_text and 'Description' in line_text:
+            continue
+        if line_text.strip() in ('Model no', 'Product Description', '(MOP)'):
+            continue
+
+        # 获取左侧第一个词（可能是物品编号）
+        left_words = [w for w in words_sorted if w['x0'] < 100]
+        right_words = [w for w in words_sorted if w['x0'] > 440]
+
+        # 左侧非数字内容（产品描述）
+        desc_words = [w for w in words_sorted if 70 < w['x0'] < 420]
+        desc_text = ' '.join(w['text'] for w in desc_words)
+
+        # 右侧数字列
+        right_nums = []
+        right_texts = []
+        for w in right_words:
+            t = w['text'].replace(',', '').replace('$', '').strip()
+            # 跳过 "unit", "By", "third", "party", "Total:", "Qty" 等标签
+            if t.lower() in ('unit', 'by', 'third', 'party', 'total:', 'total', 'qty'):
+                continue
             try:
-                val = float(p.replace(',', ''))
-                if val > 0:
-                    prices_clean.append(val)
-            except:
-                pass
+                right_nums.append(float(t))
+            except ValueError:
+                if t and t != 'unit':
+                    right_texts.append(t)
 
-        if prices_clean:
-            # Assume the largest number is the price, and preceding text is the product
-            max_price = max(prices_clean) if len(prices_clean) == 1 else prices_clean[-1]
-            product = re.sub(r'(?:¥|￥|RMB|CNY|HKD|MOP|USD|\$)?\s*\d[\d,.]*\s*(?:元|万)?', '', line).strip()
-            if product and len(product) >= 2:
-                results.append({
-                    'supplier_company': supplier_company,
-                    'contact_name': contact_name,
-                    'phone': phone,
-                    'email': email,
-                    'product_service_detail': product[:500],
-                    'price': max_price,
-                    'currency': currency,
-                    'category': '',
-                })
+        # 判断是否新物品开始
+        is_new_item = False
+        item_num = None
+        if left_words:
+            first_text = left_words[0]['text']
+            if first_text.isdigit() and 1 <= int(first_text) <= 999:
+                item_num = int(first_text)
+                # 确认这不是价格数字（价格通常 > 100 或在右侧）
+                if item_num < 100 or words_sorted[0]['x0'] < 70:
+                    is_new_item = True
 
-    # If no structured results found, return single entry with full text
+        if is_new_item:
+            # 保存上一个物品
+            if current_item:
+                current_item['product_service_detail'] = ' '.join(current_product).strip()
+                if len(current_item['product_service_detail']) > 3 or current_item['price']:
+                    results.append(current_item)
+
+            # 开始新物品
+            current_product = [desc_text] if desc_text else []
+            current_item = {
+                'supplier_company': supplier_company,
+                'contact_name': contact_name,
+                'phone': phone,
+                'email': email,
+                'product_service_detail': '',
+                'price': None,
+                'currency': currency,
+                'category': '',
+            }
+
+        # 分析右侧数字: [qty, unit_price, total] 或 [total]
+        if right_nums and current_item:
+            if len(right_nums) >= 2:
+                # 有多个数字：跳过 quantity 取 unit_price
+                # quantity 特点：小整数 (< 200)
+                start = 0
+                if len(right_nums) >= 3 and right_nums[0] < 200 and right_nums[0] == int(right_nums[0]):
+                    start = 1  # 跳过 quantity
+                    # 确保不取 total（最后一个通常最大）
+                if len(right_nums) - start >= 2:
+                    # unit_price 通常比 total 小，取第一个非 quantity 的
+                    current_item['price'] = right_nums[start]
+                else:
+                    current_item['price'] = right_nums[start] if start < len(right_nums) else right_nums[-1]
+            elif len(right_nums) == 1:
+                if right_nums[0] > 100:
+                    current_item['price'] = right_nums[0]
+
+        # 追加产品描述（非物品编号的左侧文字）
+        if desc_text and current_item and not is_new_item:
+            current_product.append(desc_text)
+
+    # 保存最后一个物品
+    if current_item:
+        current_item['product_service_detail'] = ' '.join(current_product).strip()
+        if len(current_item['product_service_detail']) > 3 or current_item['price']:
+            results.append(current_item)
+
+    # Fallback: no structured results
     if not results:
         results = [{
             'supplier_company': supplier_company,
@@ -671,7 +778,7 @@ def parse_pdf_quote(content: bytes) -> List[dict]:
             'email': email,
             'product_service_detail': full_text[:1000],
             'price': None,
-            'currency': 'CNY',
+            'currency': currency,
             'category': '',
         }]
 
