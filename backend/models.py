@@ -55,7 +55,7 @@ class SupplierQuote(Base):
     __tablename__ = 'supplier_quotes'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=False)
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True)
     supplier_company = Column(String(200), nullable=False)
     contact_name = Column(String(100))
     phone = Column(String(50))
@@ -86,7 +86,7 @@ class PriceReference(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
-def init_db(db_path='data/tracker.db'):
+def init_db(db_path='data/tracker_v2.db'):
     """Initialize database and create all tables"""
     engine = create_engine(f'sqlite:///{db_path}', connect_args={'check_same_thread': False})
     Base.metadata.create_all(engine)
